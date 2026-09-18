@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- :core-map 単体の動作確認用. debug ビルドにだけ入り, ランチャーに別アイコンで出る -->
+        <activity
+            android:name=".debug.MapDebugActivity"
+            android:exported="true"
+            android:label="kk Map (core-map debug)"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
