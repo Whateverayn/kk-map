@@ -24,14 +24,16 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
+import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.min
 
 /**
  * 地図の操作をまとめたクラス. UI フレームワーク (Compose / Car App) には依存しない.
  *
  * - 現在地と目的地, 経路のハイライト (未通過と通過済みで色を分ける) を描画する
- * - followMode 中は, 現在地と "未通過の経路 (経路が無ければ目的地)" が収まるようにカメラを合わせる (fitBounds 相当)
- * - ユーザがジェスチャで地図を動かしたら followMode を解除する
+ * - 追従 ([FollowMode]) の間は, 現在地の更新に合わせてカメラを動かす
+ * - ユーザがジェスチャで地図を動かしたら追従を解除する
  */
 class KkMapController private constructor(
     val map: MapLibreMap,
@@ -46,8 +48,8 @@ class KkMapController private constructor(
     private val routePassedSource = GeoJsonSource(SOURCE_ROUTE_PASSED)
     private var routeProgress: RouteProgress? = null
 
-    /** followMode が変わったときに呼ばれる (追従再開ボタンの表示切り替え用) */
-    var onFollowModeChanged: ((Boolean) -> Unit)? = null
+    /** followMode が変わったときに呼ばれる (追従ボタンの表示切り替え用) */
+    var onFollowModeChanged: ((FollowMode) -> Unit)? = null
 
     /** カメラを合わせるときの余白 (px). left, top, right, bottom */
     private var padding: IntArray = IntArray(4) { DEFAULT_PADDING_PX }
@@ -62,13 +64,55 @@ class KkMapController private constructor(
     /** 追従中にこれ以上ズームインしない (現在地と目的地が近すぎるとき用) */
     var maxFollowZoom: Double = DEFAULT_MAX_FOLLOW_ZOOM
 
-    var followMode: Boolean = true
+    var followMode: FollowMode = FollowMode.FIT
         set(value) {
             if (field == value) return
+            val previous = field
+            when {
+                // 全体表示に入る (現在地中心からでも, 追従していない状態からでも): いまの倍率を覚えておく
+                value == FollowMode.FIT -> zoomBeforeFit = map.cameraPosition.zoom
+                // 全体表示 → 現在地中心: 覚えておいた倍率に戻す.
+                // 全体表示の途中で地図に触ると追従が外れる (倍率はその時のまま) ので, この経路は通らない
+                previous == FollowMode.FIT && value == FollowMode.CENTER -> restoreZoom = zoomBeforeFit
+            }
             field = value
+            if (value != FollowMode.NONE) lastActiveFollowMode = value
             onFollowModeChanged?.invoke(value)
-            if (value) updateCamera()
+            if (value != FollowMode.NONE) updateCamera()
         }
+
+    /** 最後に使った追従方式. 追従していないときに追従ボタンを押すと, これで再開する */
+    private var lastActiveFollowMode: FollowMode = FollowMode.FIT
+
+    /** 全体表示に入る直前の倍率 */
+    private var zoomBeforeFit: Double? = null
+
+    /** 次に現在地中心へカメラを動かすときに使う倍率 (1回使ったら消す) */
+    private var restoreZoom: Double? = null
+
+    /** 追従ボタンの動作: 追従していなければ前回の方式で再開し, 追従中なら方式を切り替える */
+    fun resumeOrToggleFollow() {
+        followMode = when (followMode) {
+            FollowMode.NONE -> lastActiveFollowMode
+            FollowMode.FIT -> FollowMode.CENTER
+            FollowMode.CENTER -> FollowMode.FIT
+        }
+    }
+
+    /**
+     * キリのよいズームレベル (整数) に合わせて拡大・縮小する. 拡大は次の整数 (12.3 → 13), 縮小は前の整数 (12.3 → 12).
+     * ズームレベルは1つで縮尺がちょうど2倍になり, 地理院地図の表示内容も整数ごとに切り替わる.
+     * 全体表示の追従中は, 次の位置の更新で元に戻ってしまうので追従を解除する (現在地中心の追従は続ける)
+     */
+    fun zoomIn() = zoomTo(floor(map.cameraPosition.zoom + ZOOM_EPSILON) + 1)
+
+    fun zoomOut() = zoomTo(ceil(map.cameraPosition.zoom - ZOOM_EPSILON) - 1)
+
+    private fun zoomTo(zoom: Double) {
+        if (followMode == FollowMode.FIT) followMode = FollowMode.NONE
+        val clamped = zoom.coerceIn(map.minZoomLevel, map.maxZoomLevel)
+        map.easeCamera(CameraUpdateFactory.zoomTo(clamped), CAMERA_DURATION_MS)
+    }
 
     init {
         // 鉄道は現在地・目的地より下に描く
@@ -94,7 +138,7 @@ class KkMapController private constructor(
         )
         map.addOnCameraMoveStartedListener { reason ->
             if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
-                followMode = false
+                followMode = FollowMode.NONE
             }
         }
     }
@@ -115,7 +159,7 @@ class KkMapController private constructor(
             DEFAULT_PADDING_PX + right,
             DEFAULT_PADDING_PX + bottom,
         )
-        if (followMode) updateCamera()
+        if (followMode != FollowMode.NONE) updateCamera()
     }
 
     fun setUserLocation(latLng: LatLng?) {
@@ -123,7 +167,7 @@ class KkMapController private constructor(
         userSource.setGeoJson(latLng.toFeatureCollection())
         if (latLng != null) routeProgress?.update(latLng)
         updateRouteSources()
-        if (followMode) updateCamera()
+        if (followMode != FollowMode.NONE) updateCamera()
     }
 
     /**
@@ -137,7 +181,7 @@ class KkMapController private constructor(
         }
         routeProgress = if (points.size >= 2) RouteProgress(points).also { p -> user?.let { p.update(it) } } else null
         updateRouteSources()
-        if (followMode) updateCamera()
+        if (followMode != FollowMode.NONE) updateCamera()
     }
 
     private fun updateRouteSources() {
@@ -191,10 +235,20 @@ class KkMapController private constructor(
     fun setDestination(latLng: LatLng?) {
         destination = latLng
         destinationSource.setGeoJson(latLng.toFeatureCollection())
-        if (followMode) updateCamera()
+        if (followMode != FollowMode.NONE) updateCamera()
     }
 
     private fun updateCamera() {
+        if (followMode == FollowMode.CENTER) {
+            // 現在地を中央に保つ. ズームは利用者が決めたまま (現在地がまだ無ければ全体表示と同じ)
+            user?.let {
+                val zoom = restoreZoom
+                restoreZoom = null
+                val update = if (zoom != null) CameraUpdateFactory.newLatLngZoom(it, zoom) else CameraUpdateFactory.newLatLng(it)
+                map.easeCamera(update, CAMERA_DURATION_MS)
+                return
+            }
+        }
         val u = user
         val d = destination
         // 収めたい点: 現在地と, 未通過の経路 (経路が無ければ目的地)
@@ -253,6 +307,9 @@ class KkMapController private constructor(
         private const val SAME_POINT_METERS = 5.0
         private const val CAMERA_DURATION_MS = 500
 
+        /** ズームがほぼ整数 (12.0001 など) のとき, 同じ整数に留まらないようにする誤差 */
+        private const val ZOOM_EPSILON = 0.01
+
         /** 日本全体が見える初期カメラ */
         val INITIAL_CAMERA: CameraPosition = CameraPosition.Builder()
             .target(LatLng(36.0, 137.0))
@@ -272,4 +329,16 @@ class KkMapController private constructor(
             }
         }
     }
+}
+
+/** 追従の方式 */
+enum class FollowMode {
+    /** 追従しない */
+    NONE,
+
+    /** 現在地と未通過の経路 (経路が無ければ目的地) が収まるように表示する */
+    FIT,
+
+    /** 現在地を画面の中央に保つ (ナビ型). ズームは変えない */
+    CENTER,
 }
