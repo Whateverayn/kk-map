@@ -92,6 +92,24 @@ class RouteFinderTest {
     }
 
     @Test
+    fun nishiAkashiBypassIsSameRoute() {
+        // 西明石付近は複々線で, ホームの無い側の線路と車両基地の線路がある.
+        // 西明石を通らない経路や, 通り過ぎて折り返す経路を別の候補として出さない
+        assertEquals(1, finder.find(station("大久保", "山陽線"), station("明石", "山陽線")).size)
+        assertEquals(1, finder.find(station("大久保", "山陽線"), station("西明石", "山陽線")).size)
+    }
+
+    @Test
+    fun reversingRouteIsKeptWhenStationsDiffer() {
+        // 横浜線から東神奈川で京浜東北線 (東海道線) に入ると向きが変わるが, 正しい経路として残る
+        val candidates = finder.find(station("橋本", "横浜線"), station("川崎", "東海道線"))
+        assertTrue(
+            "東神奈川経由: ${candidates.map { c -> c.stations.map { it.name } }}",
+            candidates.any { c -> c.stations.any { it.name == "東神奈川" } },
+        )
+    }
+
+    @Test
     fun searchNormalizesSmallKe() {
         assertTrue(search.search("茅ケ崎").any { it.name == "茅ヶ崎" })
     }
