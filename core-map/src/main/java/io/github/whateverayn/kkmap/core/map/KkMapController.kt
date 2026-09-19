@@ -39,13 +39,15 @@ class KkMapController private constructor(
     /** followMode が変わったときに呼ばれる (追従再開ボタンの表示切り替え用) */
     var onFollowModeChanged: ((Boolean) -> Unit)? = null
 
-    /** カメラを合わせるときの余白 (px). 画面端に重なる UI の分を指定する */
-    var padding: IntArray = intArrayOf(DEFAULT_PADDING_PX, DEFAULT_PADDING_PX, DEFAULT_PADDING_PX, DEFAULT_PADDING_PX)
-        set(value) {
-            require(value.size == 4) { "padding は left, top, right, bottom の4要素" }
-            field = value
-            if (followMode) updateCamera()
-        }
+    /** カメラを合わせるときの余白 (px). left, top, right, bottom */
+    private var padding: IntArray = IntArray(4) { DEFAULT_PADDING_PX }
+
+    // MapLibre 既定の UI の余白 (px). setOverlayInsets() でこれに上乗せする
+    private val baseCompassMargins = map.uiSettings.run { intArrayOf(compassMarginLeft, compassMarginTop, compassMarginRight, compassMarginBottom) }
+    private val baseLogoMargins = map.uiSettings.run { intArrayOf(logoMarginLeft, logoMarginTop, logoMarginRight, logoMarginBottom) }
+    private val baseAttributionMargins = map.uiSettings.run {
+        intArrayOf(attributionMarginLeft, attributionMarginTop, attributionMarginRight, attributionMarginBottom)
+    }
 
     /** 追従中にこれ以上ズームインしない (現在地と目的地が近すぎるとき用) */
     var maxFollowZoom: Double = DEFAULT_MAX_FOLLOW_ZOOM
@@ -59,6 +61,8 @@ class KkMapController private constructor(
         }
 
     init {
+        // 鉄道は現在地・目的地より下に描く
+        RailLayers.install(style)
         style.addSource(userSource)
         style.addSource(destinationSource)
         style.addLayer(
@@ -82,6 +86,25 @@ class KkMapController private constructor(
                 followMode = false
             }
         }
+    }
+
+    /**
+     * 地図の上に重なっている UI の大きさ (px) を指定する.
+     * コンパス・ロゴ・出典ボタンをその内側に移し, 追従時のカメラの余白にも加える.
+     * 地図自体はステータスバーやナビゲーションバーの下まで描いたままにできる.
+     */
+    fun setOverlayInsets(left: Int, top: Int, right: Int, bottom: Int) {
+        val ui = map.uiSettings
+        baseCompassMargins.let { ui.setCompassMargins(it[0] + left, it[1] + top, it[2] + right, it[3] + bottom) }
+        baseLogoMargins.let { ui.setLogoMargins(it[0] + left, it[1] + top, it[2] + right, it[3] + bottom) }
+        baseAttributionMargins.let { ui.setAttributionMargins(it[0] + left, it[1] + top, it[2] + right, it[3] + bottom) }
+        padding = intArrayOf(
+            DEFAULT_PADDING_PX + left,
+            DEFAULT_PADDING_PX + top,
+            DEFAULT_PADDING_PX + right,
+            DEFAULT_PADDING_PX + bottom,
+        )
+        if (followMode) updateCamera()
     }
 
     fun setUserLocation(latLng: LatLng?) {
