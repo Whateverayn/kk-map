@@ -38,3 +38,6 @@ google-services.json
 # tools のダウンロードキャッシュ
 tools/*/.cache/
 .vscode/settings.json
+
+# Python のバイトコードキャッシュ
+__pycache__/
