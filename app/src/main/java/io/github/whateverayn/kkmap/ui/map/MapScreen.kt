@@ -3,15 +3,19 @@ package io.github.whateverayn.kkmap.ui.map
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Button
@@ -22,7 +26,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -30,9 +36,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.whateverayn.kkmap.BuildConfig
 import io.github.whateverayn.kkmap.core.map.KkMapController
@@ -78,10 +88,15 @@ fun MapScreen(appSettings: AppSettings) {
     }
 
     val useManual = BuildConfig.DEBUG && settings.locationSource == LocationSourceKind.MANUAL
-    val fixFlow = remember(useManual, hasPermission, settings.locationPriority, settings.locationIntervalMillis) {
+    val fixFlow = remember(useManual, hasPermission, settings) {
         when {
             useManual -> DebugLocation.manual.fix.filterNotNull()
-            hasPermission -> fusedLocationFlow(context, settings.locationPriority, settings.locationIntervalMillis)
+            hasPermission -> fusedLocationFlow(
+                context,
+                settings.locationPriority,
+                settings.locationIntervalMillis,
+                settings.locationMinUpdateInterval,
+            )
             else -> emptyFlow()
         }
     }
@@ -93,6 +108,25 @@ fun MapScreen(appSettings: AppSettings) {
     }
     LaunchedEffect(controller, destination) {
         controller?.setDestination(destination?.let { LatLng(it[0], it[1]) })
+    }
+
+    // システムバーのアイコン色. 地図は常に明るい配色なので暗いアイコンにし, 設定画面ではテーマに合わせる
+    val activity = LocalActivity.current
+    val darkTheme = isSystemInDarkTheme()
+    SideEffect {
+        val window = activity?.window ?: return@SideEffect
+        val lightBackground = !showSettings || !darkTheme
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = lightBackground
+            isAppearanceLightNavigationBars = lightBackground
+        }
+    }
+
+    // 上部オーバーレイの下端と, ナビゲーションバーの高さ (px). 地図の UI とカメラの余白をこの内側に収める
+    var overlayBottomPx by remember { mutableIntStateOf(0) }
+    val navigationBarPx = WindowInsets.navigationBars.getBottom(LocalDensity.current)
+    LaunchedEffect(controller, overlayBottomPx, navigationBarPx) {
+        controller?.setOverlayInsets(0, overlayBottomPx, 0, navigationBarPx)
     }
 
     val currentLongPressTarget by rememberUpdatedState(if (useManual) longPressTarget else LongPressTarget.DESTINATION)
@@ -112,6 +146,7 @@ fun MapScreen(appSettings: AppSettings) {
 
         Column(
             modifier = Modifier
+                .onGloballyPositioned { overlayBottomPx = it.boundsInRoot().bottom.toInt() }
                 .safeDrawingPadding()
                 .padding(8.dp)
                 .fillMaxWidth(),

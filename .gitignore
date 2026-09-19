@@ -34,3 +34,7 @@ google-services.json
 *.hprof
 .kotlin/
 .DS_Store
+
+# tools のダウンロードキャッシュ
+tools/*/.cache/
+.vscode/settings.json

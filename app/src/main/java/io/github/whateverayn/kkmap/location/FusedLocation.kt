@@ -18,10 +18,17 @@ import kotlinx.coroutines.flow.callbackFlow
  * 位置情報の権限は呼び出し側で取得済みであること.
  */
 @SuppressLint("MissingPermission")
-fun fusedLocationFlow(context: Context, priority: LocationPriority, intervalMillis: Long): Flow<LocationFix> =
+fun fusedLocationFlow(
+    context: Context,
+    priority: LocationPriority,
+    intervalMillis: Long,
+    minUpdateInterval: MinUpdateInterval,
+): Flow<LocationFix> =
     callbackFlow {
         val client = LocationServices.getFusedLocationProviderClient(context)
-        val request = LocationRequest.Builder(priority.value, intervalMillis).build()
+        val request = LocationRequest.Builder(priority.value, intervalMillis)
+            .setMinUpdateIntervalMillis(minUpdateInterval.millis(intervalMillis))
+            .build()
         val callback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { trySend(it.toFix()) }

@@ -27,6 +27,7 @@ import io.github.whateverayn.kkmap.BuildConfig
 import io.github.whateverayn.kkmap.location.LOCATION_INTERVAL_CHOICES_MILLIS
 import io.github.whateverayn.kkmap.location.LOCATION_INTERVAL_DESCRIPTION
 import io.github.whateverayn.kkmap.location.LocationPriority
+import io.github.whateverayn.kkmap.location.MinUpdateInterval
 import io.github.whateverayn.kkmap.settings.LocationSourceKind
 import io.github.whateverayn.kkmap.settings.Settings
 
@@ -80,6 +81,16 @@ fun SettingsPanel(
                     title = "${interval / 1000} 秒",
                     description = null,
                     onClick = { onChange { it.copy(locationIntervalMillis = interval) } },
+                )
+            }
+
+            SectionTitle("Fused Location: 最短受信間隔 (minUpdateIntervalMillis)")
+            MinUpdateInterval.entries.forEach { minUpdate ->
+                OptionRow(
+                    selected = settings.locationMinUpdateInterval == minUpdate,
+                    title = minUpdate.label,
+                    description = minUpdate.description,
+                    onClick = { onChange { it.copy(locationMinUpdateInterval = minUpdate) } },
                 )
             }
         }

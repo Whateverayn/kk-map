@@ -3,6 +3,7 @@ package io.github.whateverayn.kkmap.settings
 import android.content.Context
 import androidx.core.content.edit
 import io.github.whateverayn.kkmap.location.LocationPriority
+import io.github.whateverayn.kkmap.location.MinUpdateInterval
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,6 +16,7 @@ enum class LocationSourceKind(val label: String, val description: String) {
 data class Settings(
     val locationPriority: LocationPriority = LocationPriority.HIGH_ACCURACY,
     val locationIntervalMillis: Long = 5_000L,
+    val locationMinUpdateInterval: MinUpdateInterval = MinUpdateInterval.SAME_AS_INTERVAL,
     val locationSource: LocationSourceKind = LocationSourceKind.FUSED,
 )
 
@@ -29,6 +31,7 @@ class AppSettings(context: Context) {
         prefs.edit {
             putString(KEY_PRIORITY, next.locationPriority.name)
             putLong(KEY_INTERVAL, next.locationIntervalMillis)
+            putString(KEY_MIN_UPDATE, next.locationMinUpdateInterval.name)
             putString(KEY_SOURCE, next.locationSource.name)
         }
         _settings.value = next
@@ -39,6 +42,7 @@ class AppSettings(context: Context) {
         return Settings(
             locationPriority = enumOrDefault(prefs.getString(KEY_PRIORITY, null), default.locationPriority),
             locationIntervalMillis = prefs.getLong(KEY_INTERVAL, default.locationIntervalMillis),
+            locationMinUpdateInterval = enumOrDefault(prefs.getString(KEY_MIN_UPDATE, null), default.locationMinUpdateInterval),
             locationSource = enumOrDefault(prefs.getString(KEY_SOURCE, null), default.locationSource),
         )
     }
@@ -49,6 +53,7 @@ class AppSettings(context: Context) {
     private companion object {
         const val KEY_PRIORITY = "location_priority"
         const val KEY_INTERVAL = "location_interval_ms"
+        const val KEY_MIN_UPDATE = "location_min_update"
         const val KEY_SOURCE = "location_source"
     }
 }

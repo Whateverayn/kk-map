@@ -30,5 +30,24 @@ enum class LocationPriority(val value: Int, val label: String, val description: 
 val LOCATION_INTERVAL_CHOICES_MILLIS: List<Long> = listOf(1_000L, 5_000L, 15_000L, 60_000L)
 
 const val LOCATION_INTERVAL_DESCRIPTION =
-    "LocationRequest の希望更新間隔. 短いほど追従が滑らかだが電池を使う." +
-        "実際の間隔は Priority や他アプリの要求によって前後する"
+    "LocationRequest の希望更新間隔. 短いほど追従が滑らかだが電池を使う. " +
+        "実際の間隔は Priority や他アプリの要求によって前後する. " +
+        "PASSIVE では測位を起こさないので, 受け取る頻度の上限としてだけ効く"
+
+/** LocationRequest の minUpdateIntervalMillis (受け取る最短間隔) */
+enum class MinUpdateInterval(val label: String, val description: String) {
+    SAME_AS_INTERVAL(
+        "更新間隔と同じ",
+        "他のアプリがもっと頻繁に測位していても, 更新間隔より短い間隔では受け取らない (既定の動作)",
+    ),
+    IMMEDIATE(
+        "0 (即時)",
+        "他のアプリが測位するたびに即座に受け取る. 位置ロガーと PASSIVE を組み合わせるときに向く",
+    ),
+    ;
+
+    fun millis(intervalMillis: Long): Long = when (this) {
+        SAME_AS_INTERVAL -> intervalMillis
+        IMMEDIATE -> 0L
+    }
+}
