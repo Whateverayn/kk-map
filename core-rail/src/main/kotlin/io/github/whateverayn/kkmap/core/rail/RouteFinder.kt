@@ -213,10 +213,6 @@ class RouteFinder(private val graph: RailGraph) {
                 runs.add(line to 1)
             }
         }
-        // 乗車駅の直後・降車駅の直前の1駅だけの別路線は除く.
-        // 並走区間で別路線のホームが線路上に載っていることがある (例: 関西線の名古屋の手前のあおなみ線ささしまライブ)
-        if (runs.size > 1 && runs.first().second == 1) runs.removeAt(0)
-        if (runs.size > 1 && runs.last().second == 1) runs.removeAt(runs.size - 1)
         var changed = true
         while (changed) {
             changed = false
@@ -230,6 +226,11 @@ class RouteFinder(private val graph: RailGraph) {
                 }
             }
         }
+        // 乗車駅の直後・降車駅の直前の1駅だけの別路線は除く. 挟まれた1駅の吸収より後に行う
+        // (先に端を削ると, 芦屋 → 大阪 の "… 立花, 尼崎 (福知山線), 塚本" で尼崎が挟まれなくなる).
+        // 並走区間で別路線のホームが線路上に載っていることがある (例: 関西線の名古屋の手前のあおなみ線ささしまライブ)
+        if (runs.size > 1 && runs.first().second == 1) runs.removeAt(0)
+        if (runs.size > 1 && runs.last().second == 1) runs.removeAt(runs.size - 1)
         if (runs.isNotEmpty()) return runs.map { it.first }
 
         val byLine = HashMap<String, Float>()

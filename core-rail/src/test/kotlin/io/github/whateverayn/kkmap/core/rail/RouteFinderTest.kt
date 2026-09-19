@@ -85,6 +85,13 @@ class RouteFinderTest {
     }
 
     @Test
+    fun ashiyaToOsakaIgnoresSandwichedStationOnParallelLine() {
+        // 尼崎のホームが福知山線の駅として載っているが, 経路は東海道線だけ
+        val candidates = finder.find(station("芦屋", "東海道線"), station("大阪", "東海道線"))
+        assertEquals(listOf("東海道線"), candidates.first().lines)
+    }
+
+    @Test
     fun searchNormalizesSmallKe() {
         assertTrue(search.search("茅ケ崎").any { it.name == "茅ヶ崎" })
     }
