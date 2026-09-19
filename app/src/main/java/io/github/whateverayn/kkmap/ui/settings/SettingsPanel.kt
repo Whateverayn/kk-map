@@ -40,6 +40,7 @@ import io.github.whateverayn.kkmap.location.MinUpdateInterval
 import io.github.whateverayn.kkmap.settings.DataUsage
 import io.github.whateverayn.kkmap.settings.DataUsageHistory
 import io.github.whateverayn.kkmap.settings.LocationSourceKind
+import io.github.whateverayn.kkmap.settings.PipAspect
 import io.github.whateverayn.kkmap.settings.PeriodUsage
 import io.github.whateverayn.kkmap.settings.Settings
 import io.github.whateverayn.kkmap.settings.SPEED_METER_MAX_RANGE
@@ -76,6 +77,21 @@ fun SettingsPanel(
                 style = MaterialTheme.typography.bodySmall,
             )
             SpeedMeterMaxField(settings.speedMeterMaxKmh) { kmh -> onChange { it.copy(speedMeterMaxKmh = kmh) } }
+
+            SectionTitle("ピクチャーインピクチャー (PiP)")
+            Text(
+                "追従中にホームへ戻ったり他のアプリに切り替えたりすると, 地図だけを小窓で表示し続ける (追従していなければ小窓にしない). " +
+                    "小窓の大きさはピンチで変えられる",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            PipAspect.entries.forEach { aspect ->
+                OptionRow(
+                    selected = settings.pipAspect == aspect,
+                    title = aspect.label,
+                    description = null,
+                    onClick = { onChange { it.copy(pipAspect = aspect) } },
+                )
+            }
 
             if (BuildConfig.DEBUG) {
                 SectionTitle("位置情報ソース (debug ビルドのみ)")

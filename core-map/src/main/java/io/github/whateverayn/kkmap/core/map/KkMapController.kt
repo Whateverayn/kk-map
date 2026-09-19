@@ -54,6 +54,21 @@ class KkMapController private constructor(
     /** カメラを合わせるときの余白 (px). left, top, right, bottom */
     private var padding: IntArray = IntArray(4) { DEFAULT_PADDING_PX }
 
+    /**
+     * 小さい画面向けの表示 (PiP の小窓など). 全体表示の余白を減らし, 現在地・目的地の点と経路の線を細くする
+     */
+    var compact: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            applySizes()
+            updatePadding()
+            if (followMode != FollowMode.NONE) updateCamera()
+        }
+
+    /** 地図の上に重なっている UI の大きさ (px). left, top, right, bottom. 現在地中心のときは, これを除いた範囲の中央に置く */
+    private var overlayInsets: DoubleArray = DoubleArray(4)
+
     // MapLibre 既定の UI の余白 (px). setOverlayInsets() でこれに上乗せする
     private val baseCompassMargins = map.uiSettings.run { intArrayOf(compassMarginLeft, compassMarginTop, compassMarginRight, compassMarginBottom) }
     private val baseLogoMargins = map.uiSettings.run { intArrayOf(logoMarginLeft, logoMarginTop, logoMarginRight, logoMarginBottom) }
@@ -89,6 +104,11 @@ class KkMapController private constructor(
 
     /** 次に現在地中心へカメラを動かすときに使う倍率 (1回使ったら消す) */
     private var restoreZoom: Double? = null
+
+    /** 追従していなければ, 前回の方式で再開する (追従中なら何もしない) */
+    fun resumeFollow() {
+        if (followMode == FollowMode.NONE) followMode = lastActiveFollowMode
+    }
 
     /** 追従ボタンの動作: 追従していなければ前回の方式で再開し, 追従中なら方式を切り替える */
     fun resumeOrToggleFollow() {
@@ -153,13 +173,24 @@ class KkMapController private constructor(
         baseCompassMargins.let { ui.setCompassMargins(it[0] + left, it[1] + top, it[2] + right, it[3] + bottom) }
         baseLogoMargins.let { ui.setLogoMargins(it[0] + left, it[1] + top, it[2] + right, it[3] + bottom) }
         baseAttributionMargins.let { ui.setAttributionMargins(it[0] + left, it[1] + top, it[2] + right, it[3] + bottom) }
-        padding = intArrayOf(
-            DEFAULT_PADDING_PX + left,
-            DEFAULT_PADDING_PX + top,
-            DEFAULT_PADDING_PX + right,
-            DEFAULT_PADDING_PX + bottom,
-        )
+        overlayInsets = doubleArrayOf(left.toDouble(), top.toDouble(), right.toDouble(), bottom.toDouble())
+        updatePadding()
         if (followMode != FollowMode.NONE) updateCamera()
+    }
+
+    private fun updatePadding() {
+        val margin = if (compact) COMPACT_PADDING_PX else DEFAULT_PADDING_PX
+        padding = IntArray(4) { margin + overlayInsets[it].toInt() }
+    }
+
+    /** 点と線の太さを [compact] に合わせる */
+    private fun applySizes() {
+        val k = if (compact) COMPACT_SCALE else 1f
+        style.getLayer(LAYER_DESTINATION)?.setProperties(circleRadius(8f * k), circleStrokeWidth(2f * k))
+        style.getLayer(LAYER_USER)?.setProperties(circleRadius(7f * k), circleStrokeWidth(3f * k))
+        style.getLayer(LAYER_ROUTE_PASSED)?.setProperties(lineWidth(4f * k))
+        style.getLayer(LAYER_ROUTE_CASING)?.setProperties(lineWidth(9f * k))
+        style.getLayer(LAYER_ROUTE_REMAINING)?.setProperties(lineWidth(6f * k))
     }
 
     fun setUserLocation(latLng: LatLng?) {
@@ -242,10 +273,12 @@ class KkMapController private constructor(
         if (followMode == FollowMode.CENTER) {
             // 現在地を中央に保つ. ズームは利用者が決めたまま (現在地がまだ無ければ全体表示と同じ)
             user?.let {
-                val zoom = restoreZoom
+                val zoom = restoreZoom ?: map.cameraPosition.zoom
                 restoreZoom = null
-                val update = if (zoom != null) CameraUpdateFactory.newLatLngZoom(it, zoom) else CameraUpdateFactory.newLatLng(it)
-                map.easeCamera(update, CAMERA_DURATION_MS)
+                // 余白はカメラに残るので, その時点の UI に合わせて毎回指定する
+                // (全体表示のときの余白が残ると, PiP の小窓などで中央が大きくずれる)
+                val position = CameraPosition.Builder().target(it).zoom(zoom).padding(overlayInsets).build()
+                map.easeCamera(CameraUpdateFactory.newCameraPosition(position), CAMERA_DURATION_MS)
                 return
             }
         }
@@ -268,6 +301,7 @@ class KkMapController private constructor(
         }
         val clamped = CameraPosition.Builder(position)
             .zoom(min(position.zoom, maxFollowZoom))
+            .padding(overlayInsets)
             .bearing(0.0)
             .tilt(0.0)
             .build()
@@ -300,7 +334,12 @@ class KkMapController private constructor(
         private const val LAYER_ROUTE_CASING = "kk-route-casing"
         private const val LAYER_ROUTE_PASSED = "kk-route-passed"
 
-        private const val DEFAULT_PADDING_PX = 120
+        /** 全体表示のとき, 収める範囲と画面の端 (UI の内側) との余白 (px) */
+        private const val DEFAULT_PADDING_PX = 48
+
+        /** [compact] のときの余白 (px) と, 点と線の太さの倍率 */
+        private const val COMPACT_PADDING_PX = 12
+        private const val COMPACT_SCALE = 0.6f
         private const val DEFAULT_MAX_FOLLOW_ZOOM = 16.0
         private const val DEFAULT_SINGLE_POINT_ZOOM = 15.0
         private const val MIN_SINGLE_POINT_ZOOM = 10.0

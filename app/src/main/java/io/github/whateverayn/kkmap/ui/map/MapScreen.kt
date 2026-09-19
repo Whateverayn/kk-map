@@ -53,6 +53,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.whateverayn.kkmap.BuildConfig
+import io.github.whateverayn.kkmap.updatePip
 import io.github.whateverayn.kkmap.core.map.FollowMode
 import io.github.whateverayn.kkmap.core.map.KkMapController
 import io.github.whateverayn.kkmap.core.rail.RouteCandidate
@@ -81,8 +82,9 @@ private enum class LongPressTarget { DESTINATION, USER }
 /** デバッグの移動シミュレーション速度 (m/s). 60km/h */
 private const val SIMULATION_SPEED_MPS = 60_000.0 / 3600.0
 
+/** [inPip] が true の間 (ピクチャーインピクチャーの小窓) は, 地図だけを出す */
 @Composable
-fun MapScreen(appSettings: AppSettings) {
+fun MapScreen(appSettings: AppSettings, inPip: Boolean = false) {
     val context = LocalContext.current
     val settings by appSettings.settings.collectAsStateWithLifecycle()
 
@@ -162,14 +164,30 @@ fun MapScreen(appSettings: AppSettings) {
         }
     }
 
+    // 追従中だけ, 他のアプリへ切り替えたときに自動で PiP の小窓にする
+    LaunchedEffect(activity, followMode, settings.pipAspect) {
+        activity?.updatePip(autoEnter = followMode != FollowMode.NONE, aspect = settings.pipAspect)
+    }
+
     // 上部オーバーレイの下端と, ナビゲーションバーの高さ (px). 地図の UI とカメラの余白をこの内側に収める
     var overlayBottomPx by remember { mutableIntStateOf(0) }
     var rootHeightPx by remember { mutableIntStateOf(0) }
     var bottomBarTopPx by remember { mutableIntStateOf(0) }
     val navigationBarPx = WindowInsets.navigationBars.getBottom(LocalDensity.current)
     val bottomInsetPx = if (bottomBarTopPx > 0) rootHeightPx - bottomBarTopPx else navigationBarPx
-    LaunchedEffect(controller, overlayBottomPx, bottomInsetPx) {
-        controller?.setOverlayInsets(0, overlayBottomPx, 0, bottomInsetPx)
+    // 自動 PiP は追従中しか有効にしないので, PiP に入った時点で追従が外れていたら,
+    // ホームに戻るスワイプが地図に触れて "地図を動かした" と判定されただけとみなし, 追従を再開する
+    LaunchedEffect(controller, inPip) {
+        if (inPip) controller?.resumeFollow()
+    }
+
+    LaunchedEffect(controller, overlayBottomPx, bottomInsetPx, inPip) {
+        controller?.compact = inPip
+        if (inPip) {
+            controller?.setOverlayInsets(0, 0, 0, 0)
+        } else {
+            controller?.setOverlayInsets(0, overlayBottomPx, 0, bottomInsetPx)
+        }
     }
 
     val currentLongPressTarget by rememberUpdatedState(if (useManual) longPressTarget else LongPressTarget.DESTINATION)
@@ -186,6 +204,9 @@ fun MapScreen(appSettings: AppSettings) {
             }
             controller = c
         }
+
+        // PiP の小窓では地図だけを出す (ボタン類は押せないし, 小窓を覆ってしまうため)
+        if (inPip) return@Box
 
         Column(
             modifier = Modifier

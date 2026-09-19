@@ -13,6 +13,13 @@ enum class LocationSourceKind(val label: String, val description: String) {
     MANUAL("Manual (デバッグ)", "地図のロングタップで現在地を置く. 目的地への移動シミュレーションもできる"),
 }
 
+/** ピクチャーインピクチャー (PiP) の小窓の縦横比 (幅:高さ). Android の PiP は 1:2.39〜2.39:1 の範囲 */
+enum class PipAspect(val width: Int, val height: Int, val label: String) {
+    PORTRAIT(2, 3, "縦長 (2:3)"),
+    SQUARE(1, 1, "正方形 (1:1)"),
+    LANDSCAPE(3, 2, "横長 (3:2)"),
+}
+
 /** 速度計のメーターの最高速度 (対数スケールの右端, km/h) に指定できる範囲 */
 val SPEED_METER_MAX_RANGE = 5..1000
 
@@ -23,6 +30,7 @@ data class Settings(
     val locationSource: LocationSourceKind = LocationSourceKind.FUSED,
     /** 速度計のメーターの最高速度 (km/h) */
     val speedMeterMaxKmh: Int = 130,
+    val pipAspect: PipAspect = PipAspect.PORTRAIT,
 )
 
 /** SharedPreferences に保存する設定 */
@@ -39,6 +47,7 @@ class AppSettings(context: Context) {
             putString(KEY_MIN_UPDATE, next.locationMinUpdateInterval.name)
             putString(KEY_SOURCE, next.locationSource.name)
             putInt(KEY_SPEED_METER_MAX, next.speedMeterMaxKmh)
+            putString(KEY_PIP_ASPECT, next.pipAspect.name)
         }
         _settings.value = next
     }
@@ -51,6 +60,7 @@ class AppSettings(context: Context) {
             locationMinUpdateInterval = enumOrDefault(prefs.getString(KEY_MIN_UPDATE, null), default.locationMinUpdateInterval),
             locationSource = enumOrDefault(prefs.getString(KEY_SOURCE, null), default.locationSource),
             speedMeterMaxKmh = prefs.getInt(KEY_SPEED_METER_MAX, default.speedMeterMaxKmh).coerceIn(SPEED_METER_MAX_RANGE),
+            pipAspect = enumOrDefault(prefs.getString(KEY_PIP_ASPECT, null), default.pipAspect),
         )
     }
 
@@ -63,5 +73,6 @@ class AppSettings(context: Context) {
         const val KEY_MIN_UPDATE = "location_min_update"
         const val KEY_SOURCE = "location_source"
         const val KEY_SPEED_METER_MAX = "speed_meter_max_kmh"
+        const val KEY_PIP_ASPECT = "pip_aspect"
     }
 }
