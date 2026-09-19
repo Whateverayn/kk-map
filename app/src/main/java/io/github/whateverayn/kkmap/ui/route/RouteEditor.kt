@@ -379,7 +379,10 @@ private fun SectionList(
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.verticalScroll(rememberScrollState())) {
+    // 区間が増えたら, 直近に追加した区間が見えるように一番下までスクロールする (入力 UI なのでアニメーションはしない)
+    val scroll = rememberScrollState()
+    LaunchedEffect(sections.size, scroll.maxValue) { scroll.scrollTo(scroll.maxValue) }
+    Column(modifier = modifier.verticalScroll(scroll)) {
         if (sections.isEmpty()) {
             Text("区間はまだありません", style = MaterialTheme.typography.bodyMedium)
         }
