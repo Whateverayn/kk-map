@@ -45,4 +45,5 @@ private fun Location.toFix() = LocationFix(
     longitude = longitude,
     accuracyMeters = if (hasAccuracy()) accuracy else null,
     timeMillis = time,
+    speedMps = if (hasSpeed()) speed else null,
 )

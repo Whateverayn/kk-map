@@ -19,6 +19,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
@@ -34,8 +40,10 @@ import io.github.whateverayn.kkmap.location.MinUpdateInterval
 import io.github.whateverayn.kkmap.settings.DataUsage
 import io.github.whateverayn.kkmap.settings.DataUsageHistory
 import io.github.whateverayn.kkmap.settings.LocationSourceKind
+import io.github.whateverayn.kkmap.settings.PipAspect
 import io.github.whateverayn.kkmap.settings.PeriodUsage
 import io.github.whateverayn.kkmap.settings.Settings
+import io.github.whateverayn.kkmap.settings.SPEED_METER_MAX_RANGE
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -61,6 +69,29 @@ fun SettingsPanel(
             }
 
             DataUsageSection()
+
+            SectionTitle("速度計: メーターの最高速度")
+            Text(
+                "上部の表示の背景を速度計のメーターとして塗る. 対数スケールで, この速度 (km/h) で端まで塗られる. " +
+                    "目安: 自転車 40, 在来線 130, 新幹線 320 (${SPEED_METER_MAX_RANGE.first}〜${SPEED_METER_MAX_RANGE.last})",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            SpeedMeterMaxField(settings.speedMeterMaxKmh) { kmh -> onChange { it.copy(speedMeterMaxKmh = kmh) } }
+
+            SectionTitle("ピクチャーインピクチャー (PiP)")
+            Text(
+                "追従中にホームへ戻ったり他のアプリに切り替えたりすると, 地図だけを小窓で表示し続ける (追従していなければ小窓にしない). " +
+                    "小窓の大きさはピンチで変えられる",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            PipAspect.entries.forEach { aspect ->
+                OptionRow(
+                    selected = settings.pipAspect == aspect,
+                    title = aspect.label,
+                    description = null,
+                    onClick = { onChange { it.copy(pipAspect = aspect) } },
+                )
+            }
 
             if (BuildConfig.DEBUG) {
                 SectionTitle("位置情報ソース (debug ビルドのみ)")
@@ -185,5 +216,24 @@ private fun PeriodRow(title: String, usage: PeriodUsage?, averageLabel: String, 
     Text(
         "  Wi-Fi ${DataUsage.format(usage.wifi.total)} / モバイル ${DataUsage.format(usage.mobile.total)}",
         style = MaterialTheme.typography.bodySmall,
+    )
+}
+
+/** 速度計の最高速度の入力欄. 範囲内の整数が入力されたときだけ保存する (入力途中の空欄などは保存しない) */
+@Composable
+private fun SpeedMeterMaxField(value: Int, onValueChange: (Int) -> Unit) {
+    var text by remember { mutableStateOf(value.toString()) }
+    val parsed = text.toIntOrNull()?.takeIf { it in SPEED_METER_MAX_RANGE }
+    OutlinedTextField(
+        value = text,
+        onValueChange = { input ->
+            text = input.filter(Char::isDigit).take(4)
+            text.toIntOrNull()?.takeIf { it in SPEED_METER_MAX_RANGE }?.let(onValueChange)
+        },
+        singleLine = true,
+        isError = parsed == null,
+        suffix = { Text("km/h") },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = Modifier.fillMaxWidth(),
     )
 }

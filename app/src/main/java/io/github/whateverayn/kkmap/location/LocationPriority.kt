@@ -40,14 +40,15 @@ enum class MinUpdateInterval(val label: String, val description: String) {
         "更新間隔と同じ",
         "他のアプリがもっと頻繁に測位していても, 更新間隔より短い間隔では受け取らない (既定の動作)",
     ),
-    IMMEDIATE(
-        "0 (即時)",
-        "他のアプリが測位するたびに即座に受け取る. 位置ロガーと PASSIVE を組み合わせるときに向く",
+    ONE_SECOND(
+        "1 秒",
+        "他のアプリが測位していれば, 更新間隔によらず最短1秒ごとに受け取る. 位置ロガーと PASSIVE を組み合わせるときに向く. " +
+            "0 (無制限) にしないのは, 高頻度に測位するアプリがあると受け取るたびに地図が動いて描画の負荷が増えるため",
     ),
     ;
 
     fun millis(intervalMillis: Long): Long = when (this) {
         SAME_AS_INTERVAL -> intervalMillis
-        IMMEDIATE -> 0L
+        ONE_SECOND -> minOf(1_000L, intervalMillis)
     }
 }
