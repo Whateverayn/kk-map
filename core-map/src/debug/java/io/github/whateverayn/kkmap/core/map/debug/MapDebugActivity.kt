@@ -54,10 +54,12 @@ class MapDebugActivity : ComponentActivity() {
         })
 
         KkMapController.attach(mapView) { controller ->
-            controller.onFollowModeChanged = { following ->
-                followButton.visibility = if (following) Button.GONE else Button.VISIBLE
+            controller.onFollowModeChanged = { mode ->
+                followButton.text = "追従: $mode"
             }
-            followButton.setOnClickListener { controller.followMode = true }
+            followButton.text = "追従: ${controller.followMode}"
+            followButton.visibility = Button.VISIBLE
+            followButton.setOnClickListener { controller.resumeOrToggleFollow() }
             controller.map.addOnMapClickListener { latLng ->
                 controller.setUserLocation(latLng)
                 true

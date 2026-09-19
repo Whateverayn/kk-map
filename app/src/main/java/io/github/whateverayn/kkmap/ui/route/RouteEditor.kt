@@ -206,7 +206,7 @@ fun RouteEditor(
                 when (val s = step) {
                     is Step.PickRoute -> CandidateSlots(
                         slotCount = slotCount,
-                        items = s.routes.map { routeLabel(it) },
+                        items = routeLabels(s.routes),
                         onPick = { i -> commit(sections + s.routes[i], s.after) },
                     )
                     is Step.PickTransfer -> CandidateSlots(
@@ -295,11 +295,32 @@ private fun transferLabel(s: TransferSuggestion): String {
     }
 }
 
-private fun routeLabel(route: RouteCandidate): String {
+/**
+ * 経路の候補の表示. 見分けがつくように経由駅を添える.
+ *
+ * 経由駅は, ほかの候補が通らない途中駅が一番長く続く区間の, 真ん中の駅 (大阪 → 奈良 なら環状線の回り方が分かる駅).
+ * 1駅だけ離れて出てくる "ほかの候補が通らない駅" は選ばない. 線路データの都合で, 実際にはどちらの候補でも停まる駅
+ * (大阪 → 奈良 の天王寺: 片方の経路だけホームを通らない線路を通る) がそうなることがあるため.
+ * そういう駅が無ければ, 途中駅の真ん中あたりの駅
+ */
+private fun routeLabels(routes: List<RouteCandidate>): List<String> = routes.map { route ->
     val km = "%.1fkm".format(route.lengthMeters / 1000)
-    // 候補の見分けがつくように, 途中の真ん中あたりの駅を添える
-    val via = route.stations.getOrNull(route.stations.size / 2)?.takeIf { route.stations.size > 2 }?.name
-    return listOfNotNull(route.lines.joinToString(" → "), km, via?.let { "$it 経由" }).joinToString("  ")
+    val middle = route.stations.drop(1).dropLast(1)
+    val others = routes.filter { it !== route }.flatMap { it.stations }.map { it.index }.toSet()
+    // ほかの候補が通らない駅が連続する区間
+    val runs = mutableListOf<MutableList<StationGroup>>()
+    var previousUnique = false
+    for (s in middle) {
+        val unique = s.index !in others
+        if (unique) {
+            if (!previousUnique) runs.add(mutableListOf())
+            runs.last().add(s)
+        }
+        previousUnique = unique
+    }
+    val longest = runs.maxByOrNull { it.size }
+    val via = longest?.get((longest.size - 1) / 2) ?: middle.getOrNull(middle.size / 2)
+    listOfNotNull(route.lines.joinToString(" → "), km, via?.let { "${it.name} 経由" }).joinToString("  ")
 }
 
 /**

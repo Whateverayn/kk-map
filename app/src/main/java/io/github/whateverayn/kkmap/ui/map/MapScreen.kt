@@ -48,6 +48,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.whateverayn.kkmap.BuildConfig
+import io.github.whateverayn.kkmap.core.map.FollowMode
 import io.github.whateverayn.kkmap.core.map.KkMapController
 import io.github.whateverayn.kkmap.core.rail.RouteCandidate
 import io.github.whateverayn.kkmap.location.DebugLocation
@@ -81,7 +82,7 @@ fun MapScreen(appSettings: AppSettings) {
     val settings by appSettings.settings.collectAsStateWithLifecycle()
 
     var controller by remember { mutableStateOf<KkMapController?>(null) }
-    var following by remember { mutableStateOf(true) }
+    var followMode by remember { mutableStateOf(FollowMode.FIT) }
     var destination by rememberSaveable { mutableStateOf<DoubleArray?>(null) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var longPressTarget by rememberSaveable { mutableStateOf(LongPressTarget.DESTINATION) }
@@ -168,7 +169,7 @@ fun MapScreen(appSettings: AppSettings) {
 
     Box(Modifier.fillMaxSize().onGloballyPositioned { rootHeightPx = it.size.height }) {
         KkMapView(modifier = Modifier.fillMaxSize()) { c ->
-            c.onFollowModeChanged = { following = it }
+            c.onFollowModeChanged = { followMode = it }
             c.map.addOnMapLongClickListener { p ->
                 when (currentLongPressTarget) {
                     LongPressTarget.DESTINATION -> destination = doubleArrayOf(p.latitude, p.longitude)
@@ -213,24 +214,30 @@ fun MapScreen(appSettings: AppSettings) {
             }
         }
 
-        // 下部: 経路の要約 (タップで編集) と追従ボタン
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // 下部: 右端に地図の操作ボタン, その下に経路の要約 (タップで編集)
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .onGloballyPositioned { bottomBarTopPx = it.boundsInRoot().top.toInt() }
                 .safeDrawingPadding()
                 .padding(8.dp)
                 .fillMaxWidth(),
         ) {
+            MapButtons(
+                followMode = followMode,
+                onZoomIn = { controller?.zoomIn() },
+                onZoomOut = { controller?.zoomOut() },
+                onFollow = { controller?.resumeOrToggleFollow() },
+            )
             Surface(
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
                 contentColor = MaterialTheme.colorScheme.onSurface,
                 shape = MaterialTheme.shapes.medium,
                 modifier = Modifier
-                    .weight(1f)
+                    .fillMaxWidth()
                     .heightIn(min = 48.dp)
+                    .onGloballyPositioned { bottomBarTopPx = it.boundsInRoot().top.toInt() }
                     .clickable(enabled = railData != null) { showRoute = true },
             ) {
                 Text(
@@ -239,12 +246,6 @@ fun MapScreen(appSettings: AppSettings) {
                     maxLines = 2,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 )
-            }
-            if (!following) {
-                Button(
-                    onClick = { controller?.followMode = true },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) { Text("追従") }
             }
         }
 
