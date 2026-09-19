@@ -8,7 +8,8 @@ N02 の駅の形状は, ほぼすべて (99%) が線路区間そのもの (ホ�
 そこで次のようにグラフを組む.
 
 1. 線路区間の端点を節点, 区間を辺とする (事業者をまたいで, 物理的につながっていればつながる).
-   座標の微小な誤差や数mの途切れは, 丸めと近接結合で吸収する
+   座標の微小な誤差や数mの途切れは, 丸めと近接結合で吸収する.
+   別事業者の2路線が交差点で端点を共有しているところは, 路線ごとに節点を分ける
 2. 同じ駅 (グループコード + 事業者 + 路線名) のホーム区間の端点を1つの "駅節点" にまとめる.
    ホームが複数本あっても, 経路がホームの違いだけで何通りにも分かれないようにするため
 3. 駅節点と分岐点 (次数が2以外) だけを残し, その間の区間の連なりを1本の辺にまとめる
@@ -56,6 +57,11 @@ def haversine(a, b) -> float:
     return 2 * 6_371_000 * math.asin(math.sqrt(h))
 
 
+def coord(node) -> tuple:
+    """節点の座標. 交差点で路線ごとに分けた節点は (座標, 事業者, 路線名) の形なので座標を取り出す"""
+    return node[0] if isinstance(node[0], tuple) else node
+
+
 def snap_coords(coords) -> tuple:
     return tuple((round(x, SNAP_DIGITS), round(y, SNAP_DIGITS)) for x, y in coords)
 
@@ -84,6 +90,25 @@ def build(sections: dict, stations: dict):
     ]
     by_geometry = {geom: i for i, (geom, _, _) in enumerate(secs)}
 
+    # 事業者の違う2路線が1点で "A 線2本 + B 線2本" の形で接している点は, 立体交差か並走とみなし,
+    # 路線ごとに別の節点にする (別の路線へは曲がれないようにする).
+    # N02 は交差点で線路を区切って端点を共有していることがあり, 例えば JR東西線と地下鉄谷町線が北新地/東梅田でつながってしまう
+    at_point: dict = collections.defaultdict(list)
+    for geom, operator, line in secs:
+        at_point[geom[0]].append((operator, line))
+        at_point[geom[-1]].append((operator, line))
+    crossings = set()
+    for pt, keys in at_point.items():
+        counts = collections.Counter(keys)
+        if len(keys) == 4 and sorted(counts.values()) == [2, 2] and len({k[0] for k in counts}) == 2:
+            crossings.add(pt)
+
+    def end(i: int, which: int):
+        """区間 i の端点 (which: 0 = 始点, -1 = 終点) の節点. 交差点では (座標, 事業者, 路線名)"""
+        geom, operator, line = secs[i]
+        pt = geom[which]
+        return (pt, operator, line) if pt in crossings else pt
+
     # 駅 (グループ) の情報. 代表点は全ホームの頂点の平均
     groups: dict[str, dict] = {}
     station_key_of_section: dict[int, tuple] = {}
@@ -105,24 +130,24 @@ def build(sections: dict, stations: dict):
     # 1-2. 端点を節点にし, 同じ駅のホーム区間の端点をまとめる
     uf = UnionFind()
     station_endpoints: dict[tuple, list] = collections.defaultdict(list)
-    for i, (geom, _, _) in enumerate(secs):
-        uf.find(geom[0])
-        uf.find(geom[-1])
+    for i in range(len(secs)):
+        uf.find(end(i, 0))
+        uf.find(end(i, -1))
         key = station_key_of_section.get(i)
         if key is not None:
-            station_endpoints[key] += [geom[0], geom[-1]]
+            station_endpoints[key] += [end(i, 0), end(i, -1)]
 
     # 線路区間と形状が一致しない駅は, 同じ路線の最寄りの端点に付ける
     endpoints_by_line: dict[tuple, set] = collections.defaultdict(set)
-    for geom, operator, line in secs:
-        endpoints_by_line[(operator, line)] |= {geom[0], geom[-1]}
+    for i, (_, operator, line) in enumerate(secs):
+        endpoints_by_line[(operator, line)] |= {end(i, 0), end(i, -1)}
     for key, geom in unmatched:
         candidates = endpoints_by_line.get((key[1], key[2]))
         if not candidates:
             print(f"warning: 駅を線路に付けられない: {key}", file=sys.stderr)
             continue
         center = (sum(c[0] for c in geom) / len(geom), sum(c[1] for c in geom) / len(geom))
-        station_endpoints[key].append(min(candidates, key=lambda c: haversine(c, center)))
+        station_endpoints[key].append(min(candidates, key=lambda c: haversine(coord(c), center)))
 
     for key, pts in station_endpoints.items():
         for pt in pts[1:]:
@@ -130,32 +155,34 @@ def build(sections: dict, stations: dict):
 
     # 行き止まりの端点のうち, すぐ近くに別の端点があるものはつなぐ (N02 には数mずれて途切れている所がある)
     degree = collections.Counter()
-    for geom, _, _ in secs:
-        degree[geom[0]] += 1
-        degree[geom[-1]] += 1
+    for i in range(len(secs)):
+        degree[end(i, 0)] += 1
+        degree[end(i, -1)] += 1
     buckets: dict = collections.defaultdict(list)
-    for pt in degree:
-        buckets[(round(pt[0] * 1000), round(pt[1] * 1000))].append(pt)
+    for n in degree:
+        c = coord(n)
+        buckets[(round(c[0] * 1000), round(c[1] * 1000))].append(n)
     joined = 0
-    for pt, n in degree.items():
-        if n != 1:
+    for n, d in degree.items():
+        if d != 1:
             continue
-        bx, by = round(pt[0] * 1000), round(pt[1] * 1000)
+        c = coord(n)
+        bx, by = round(c[0] * 1000), round(c[1] * 1000)
         near = [
             other
             for dx in (-1, 0, 1) for dy in (-1, 0, 1)
             for other in buckets[(bx + dx, by + dy)]
-            if other != pt and haversine(pt, other) <= JOIN_DANGLING_METERS
+            if other != n and haversine(c, coord(other)) <= JOIN_DANGLING_METERS
         ]
         if near:
-            uf.union(pt, min(near, key=lambda o: haversine(pt, o)))
+            uf.union(n, min(near, key=lambda o: haversine(c, coord(o))))
             joined += 1
     node_station = {uf.find(pts[0]): key for key, pts in station_endpoints.items()}
 
     # 3. 駅節点と分岐点だけを残して, 区間の連なりを1本の辺にまとめる
     adjacency: dict = collections.defaultdict(list)
-    for i, (geom, _, _) in enumerate(secs):
-        a, b = uf.find(geom[0]), uf.find(geom[-1])
+    for i in range(len(secs)):
+        a, b = uf.find(end(i, 0)), uf.find(end(i, -1))
         if a == b:
             continue  # ホーム区間 (駅節点の中に畳まれる) や, 駅を持たない小さな環
         adjacency[a].append((i, b, False))
@@ -214,7 +241,7 @@ def build(sections: dict, stations: dict):
     nodes = [None] * len(node_ids)
     for n, i in node_ids.items():
         key = node_station.get(n)
-        nodes[i] = (n, group_index[key[0]] if key else -1, key[2] if key else None)
+        nodes[i] = (coord(n), group_index[key[0]] if key else -1, key[2] if key else None)
 
     group_rows = []
     for code in group_codes:
@@ -229,7 +256,7 @@ def build(sections: dict, stations: dict):
         ))
     print(
         f"groups={len(group_rows)} nodes={len(nodes)} edges={len(edges)} "
-        f"unmatched_stations={len(unmatched)} joined_dangling={joined}"
+        f"unmatched_stations={len(unmatched)} joined_dangling={joined} split_crossings={len(crossings)}"
     )
     return group_rows, nodes, edges
 
