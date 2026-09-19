@@ -1,0 +1,4 @@
+<resources>
+    <!-- debug 版は release 版と並べてインストールされるので, ランチャーで区別できる名前にする -->
+    <string name="app_name">kk Map (debug)</string>
+</resources>
