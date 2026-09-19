@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import io.github.whateverayn.kkmap.core.map.ConnectivityRetry
 import io.github.whateverayn.kkmap.core.map.KkMap
 import io.github.whateverayn.kkmap.core.map.KkMapController
 import io.github.whateverayn.kkmap.core.map.bindLifecycle
@@ -29,7 +30,13 @@ fun KkMapView(
     }
     DisposableEffect(lifecycle, mapView) {
         val unbind = mapView.bindLifecycle(lifecycle)
-        onDispose { unbind() }
+        // 通信が戻ったら失敗したタイルを取り直させる (アプリを再起動しなくても地図が出るように)
+        val retry = ConnectivityRetry(context)
+        lifecycle.addObserver(retry)
+        onDispose {
+            lifecycle.removeObserver(retry)
+            unbind()
+        }
     }
     DisposableEffect(mapView) {
         KkMapController.attach(mapView) { currentOnReady(it) }
