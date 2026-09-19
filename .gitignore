@@ -41,3 +41,6 @@ tools/*/.cache/
 
 # Python のバイトコードキャッシュ
 __pycache__/
+
+# Android Studio の "Generate Signed APK" の出力先
+app/release/

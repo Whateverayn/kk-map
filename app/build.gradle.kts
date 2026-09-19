@@ -13,13 +13,20 @@ android {
         applicationId = "io.github.whateverayn.kkmap"
         minSdk = 30
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        // versionName は SemVer (MAJOR.MINOR.PATCH). versionCode はそこから導く (MAJOR*10000 + MINOR*100 + PATCH)
+        versionName = "0.1.0"
+        versionCode = versionName!!.split(".").map(String::toInt).let { (major, minor, patch) ->
+            major * 10000 + minor * 100 + patch
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
+        // debug 版は別のアプリとしてインストールする (release 版と署名が違っても共存でき, 保存した区間が消えない)
+        debug {
+            applicationIdSuffix = ".debug"
+        }
         release {
             optimization {
                 enable = false
