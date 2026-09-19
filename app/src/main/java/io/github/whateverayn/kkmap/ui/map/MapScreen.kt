@@ -26,6 +26,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import io.github.whateverayn.kkmap.R
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.produceState
@@ -132,6 +137,8 @@ fun MapScreen(appSettings: AppSettings) {
     }
     // collect はフォアグラウンド (STARTED) の間だけ. バックグラウンドでは測位しない
     val fix by fixFlow.collectAsStateWithLifecycle(initialValue = null)
+    val speedEstimator = remember { SpeedEstimator() }
+    val speed = remember(fix) { fix?.let(speedEstimator::update) }
 
     LaunchedEffect(controller, fix) {
         controller?.setUserLocation(fix?.let { LatLng(it.latitude, it.longitude) })
@@ -193,16 +200,23 @@ fun MapScreen(appSettings: AppSettings) {
                 contentColor = MaterialTheme.colorScheme.onSurface,
                 shape = MaterialTheme.shapes.medium,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp)) {
+                // 背景を速度計のメーターとして左から塗る
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .speedMeter(speed, settings.speedMeterMaxKmh, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                        .padding(start = 12.dp),
+                ) {
                     Text(
                         text = statusText(fix, useManual, hasPermission, settings.locationPriority.label, settings.locationIntervalMillis),
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.weight(1f),
                     )
-                    OutlinedButton(
+                    SpeedText(speed, modifier = Modifier.padding(horizontal = 8.dp))
+                    IconButton(
                         onClick = { showSettings = true },
-                        modifier = Modifier.heightIn(min = 48.dp).padding(4.dp),
-                    ) { Text("設定") }
+                        modifier = Modifier.size(48.dp),
+                    ) { Icon(painterResource(R.drawable.ic_settings), contentDescription = "設定") }
                 }
             }
             if (useManual) {

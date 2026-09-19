@@ -8,4 +8,6 @@ data class LocationFix(
     val accuracyMeters: Float?,
     /** 取得時刻 (System.currentTimeMillis 基準) */
     val timeMillis: Long,
+    /** 測位で得た速度 (m/s). GNSS ならドップラー効果から直接測った値. 不明なら null */
+    val speedMps: Float? = null,
 )

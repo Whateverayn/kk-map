@@ -13,11 +13,16 @@ enum class LocationSourceKind(val label: String, val description: String) {
     MANUAL("Manual (デバッグ)", "地図のロングタップで現在地を置く. 目的地への移動シミュレーションもできる"),
 }
 
+/** 速度計のメーターの最高速度 (対数スケールの右端, km/h) に指定できる範囲 */
+val SPEED_METER_MAX_RANGE = 5..1000
+
 data class Settings(
     val locationPriority: LocationPriority = LocationPriority.HIGH_ACCURACY,
     val locationIntervalMillis: Long = 5_000L,
     val locationMinUpdateInterval: MinUpdateInterval = MinUpdateInterval.SAME_AS_INTERVAL,
     val locationSource: LocationSourceKind = LocationSourceKind.FUSED,
+    /** 速度計のメーターの最高速度 (km/h) */
+    val speedMeterMaxKmh: Int = 130,
 )
 
 /** SharedPreferences に保存する設定 */
@@ -33,6 +38,7 @@ class AppSettings(context: Context) {
             putLong(KEY_INTERVAL, next.locationIntervalMillis)
             putString(KEY_MIN_UPDATE, next.locationMinUpdateInterval.name)
             putString(KEY_SOURCE, next.locationSource.name)
+            putInt(KEY_SPEED_METER_MAX, next.speedMeterMaxKmh)
         }
         _settings.value = next
     }
@@ -44,6 +50,7 @@ class AppSettings(context: Context) {
             locationIntervalMillis = prefs.getLong(KEY_INTERVAL, default.locationIntervalMillis),
             locationMinUpdateInterval = enumOrDefault(prefs.getString(KEY_MIN_UPDATE, null), default.locationMinUpdateInterval),
             locationSource = enumOrDefault(prefs.getString(KEY_SOURCE, null), default.locationSource),
+            speedMeterMaxKmh = prefs.getInt(KEY_SPEED_METER_MAX, default.speedMeterMaxKmh).coerceIn(SPEED_METER_MAX_RANGE),
         )
     }
 
@@ -55,5 +62,6 @@ class AppSettings(context: Context) {
         const val KEY_INTERVAL = "location_interval_ms"
         const val KEY_MIN_UPDATE = "location_min_update"
         const val KEY_SOURCE = "location_source"
+        const val KEY_SPEED_METER_MAX = "speed_meter_max_kmh"
     }
 }
