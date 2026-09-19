@@ -9,21 +9,28 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
 import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
+import org.maplibre.android.style.layers.PropertyFactory.lineCap
+import org.maplibre.android.style.layers.PropertyFactory.lineColor
+import org.maplibre.android.style.layers.PropertyFactory.lineJoin
+import org.maplibre.android.style.layers.PropertyFactory.lineWidth
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 import kotlin.math.min
 
 /**
  * 地図の操作をまとめたクラス. UI フレームワーク (Compose / Car App) には依存しない.
  *
- * - 現在地と目的地を描画する
- * - followMode 中は, 現在地と目的地の両方が収まるようにカメラを合わせる (fitBounds 相当)
+ * - 現在地と目的地, 経路のハイライト (未通過と通過済みで色を分ける) を描画する
+ * - followMode 中は, 現在地と "未通過の経路 (経路が無ければ目的地)" が収まるようにカメラを合わせる (fitBounds 相当)
  * - ユーザがジェスチャで地図を動かしたら followMode を解除する
  */
 class KkMapController private constructor(
@@ -35,6 +42,9 @@ class KkMapController private constructor(
 
     private val userSource = GeoJsonSource(SOURCE_USER)
     private val destinationSource = GeoJsonSource(SOURCE_DESTINATION)
+    private val routeRemainingSource = GeoJsonSource(SOURCE_ROUTE_REMAINING)
+    private val routePassedSource = GeoJsonSource(SOURCE_ROUTE_PASSED)
+    private var routeProgress: RouteProgress? = null
 
     /** followMode が変わったときに呼ばれる (追従再開ボタンの表示切り替え用) */
     var onFollowModeChanged: ((Boolean) -> Unit)? = null
@@ -63,6 +73,7 @@ class KkMapController private constructor(
     init {
         // 鉄道は現在地・目的地より下に描く
         RailLayers.install(style)
+        installRouteLayers()
         style.addSource(userSource)
         style.addSource(destinationSource)
         style.addLayer(
@@ -110,7 +121,71 @@ class KkMapController private constructor(
     fun setUserLocation(latLng: LatLng?) {
         user = latLng
         userSource.setGeoJson(latLng.toFeatureCollection())
+        if (latLng != null) routeProgress?.update(latLng)
+        updateRouteSources()
         if (followMode) updateCamera()
+    }
+
+    /**
+     * ハイライトする経路. 区間ごとの折れ線を, 乗る順に渡す (null か空なら消す).
+     * 設定し直すと進み具合は始点からやり直す.
+     */
+    fun setRoute(sections: List<List<LatLng>>?) {
+        val points = ArrayList<LatLng>()
+        for (section in sections.orEmpty()) {
+            points.addAll(if (points.isNotEmpty() && points.last() == section.firstOrNull()) section.drop(1) else section)
+        }
+        routeProgress = if (points.size >= 2) RouteProgress(points).also { p -> user?.let { p.update(it) } } else null
+        updateRouteSources()
+        if (followMode) updateCamera()
+    }
+
+    private fun updateRouteSources() {
+        val progress = routeProgress
+        routeRemainingSource.setGeoJson(progress?.remaining().toLineFeatures())
+        routePassedSource.setGeoJson(progress?.passed().toLineFeatures())
+    }
+
+    private fun List<LatLng>?.toLineFeatures(): FeatureCollection =
+        if (this == null || size < 2) {
+            FeatureCollection.fromFeatures(emptyList<Feature>())
+        } else {
+            FeatureCollection.fromFeature(
+                Feature.fromGeometry(LineString.fromLngLats(map { Point.fromLngLat(it.longitude, it.latitude) }))
+            )
+        }
+
+    private fun installRouteLayers() {
+        style.addSource(routePassedSource)
+        style.addSource(routeRemainingSource)
+        val below = RailLayers.LAYER_STATION
+        style.addLayerBelow(
+            LineLayer(LAYER_ROUTE_PASSED, SOURCE_ROUTE_PASSED).withProperties(
+                lineColor(Color.rgb(0x9E, 0x9E, 0x9E)),
+                lineWidth(4f),
+                lineCap(Property.LINE_CAP_ROUND),
+                lineJoin(Property.LINE_JOIN_ROUND),
+            ),
+            below,
+        )
+        style.addLayerBelow(
+            LineLayer(LAYER_ROUTE_CASING, SOURCE_ROUTE_REMAINING).withProperties(
+                lineColor(Color.WHITE),
+                lineWidth(9f),
+                lineCap(Property.LINE_CAP_ROUND),
+                lineJoin(Property.LINE_JOIN_ROUND),
+            ),
+            below,
+        )
+        style.addLayerBelow(
+            LineLayer(LAYER_ROUTE_REMAINING, SOURCE_ROUTE_REMAINING).withProperties(
+                lineColor(Color.rgb(0xE6, 0x51, 0x00)),
+                lineWidth(6f),
+                lineCap(Property.LINE_CAP_ROUND),
+                lineJoin(Property.LINE_JOIN_ROUND),
+            ),
+            below,
+        )
     }
 
     fun setDestination(latLng: LatLng?) {
@@ -122,9 +197,15 @@ class KkMapController private constructor(
     private fun updateCamera() {
         val u = user
         val d = destination
+        // 収めたい点: 現在地と, 未通過の経路 (経路が無ければ目的地)
+        val targets = buildList {
+            u?.let(::add)
+            val remaining = routeProgress?.remaining()
+            if (remaining != null) addAll(remaining) else d?.let(::add)
+        }
         val position: CameraPosition = when {
-            u != null && d != null && u.distanceTo(d) > SAME_POINT_METERS -> {
-                val bounds = LatLngBounds.Builder().include(u).include(d).build()
+            targets.size >= 2 && spansMoreThan(targets, SAME_POINT_METERS) -> {
+                val bounds = LatLngBounds.Builder().includes(targets).build()
                 map.getCameraForLatLngBounds(bounds, padding) ?: return
             }
             u != null -> singlePointCamera(u)
@@ -138,6 +219,9 @@ class KkMapController private constructor(
             .build()
         map.easeCamera(CameraUpdateFactory.newCameraPosition(clamped), CAMERA_DURATION_MS)
     }
+
+    private fun spansMoreThan(points: List<LatLng>, meters: Double): Boolean =
+        points.any { it.distanceTo(points[0]) > meters }
 
     private fun singlePointCamera(target: LatLng): CameraPosition {
         val zoom = map.cameraPosition.zoom.takeIf { it >= MIN_SINGLE_POINT_ZOOM } ?: DEFAULT_SINGLE_POINT_ZOOM
@@ -156,6 +240,11 @@ class KkMapController private constructor(
         private const val SOURCE_DESTINATION = "kk-destination"
         private const val LAYER_USER = "kk-user"
         private const val LAYER_DESTINATION = "kk-destination"
+        private const val SOURCE_ROUTE_REMAINING = "kk-route-remaining"
+        private const val SOURCE_ROUTE_PASSED = "kk-route-passed"
+        private const val LAYER_ROUTE_REMAINING = "kk-route-remaining"
+        private const val LAYER_ROUTE_CASING = "kk-route-casing"
+        private const val LAYER_ROUTE_PASSED = "kk-route-passed"
 
         private const val DEFAULT_PADDING_PX = 120
         private const val DEFAULT_MAX_FOLLOW_ZOOM = 16.0
