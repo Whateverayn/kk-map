@@ -14,7 +14,7 @@ android {
         minSdk = 30
         targetSdk = 37
         // versionName は SemVer (MAJOR.MINOR.PATCH). versionCode はそこから導く (MAJOR*10000 + MINOR*100 + PATCH)
-        versionName = "0.2.0"
+        versionName = "0.2.1"
         versionCode = versionName!!.split(".").map(String::toInt).let { (major, minor, patch) ->
             major * 10000 + minor * 100 + patch
         }
