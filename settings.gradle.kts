@@ -25,3 +25,4 @@ dependencyResolutionManagement {
 rootProject.name = "kk Map"
 include(":app")
 include(":core-map")
+include(":core-rail")

@@ -48,7 +48,8 @@ internal object RailLayers {
     private const val SOURCE_LINES = "kk-rail-lines"
     private const val SOURCE_STATIONS = "kk-rail-stations"
     private const val LAYER_LINE_LOW_ZOOM = "kk-rail-line-low-zoom"
-    private const val LAYER_STATION = "kk-rail-station"
+    /** 駅の点. 経路のハイライトはこの下に差し込む (経路上でも駅の点が見えるように) */
+    const val LAYER_STATION = "kk-rail-station"
     private const val LAYER_STATION_LABEL = "kk-rail-station-label"
 
     /** 地理院スタイルの低ズーム用鉄道レイヤー (build_style.py で非表示にしてある). 自前の路線はこの位置に差し込む */

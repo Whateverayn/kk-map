@@ -38,6 +38,7 @@ android {
 
 dependencies {
     implementation(project(":core-map"))
+    implementation(project(":core-rail"))
     implementation(libs.play.services.location)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)

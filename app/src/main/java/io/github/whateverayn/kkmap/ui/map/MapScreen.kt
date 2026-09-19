@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +28,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -46,12 +49,20 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.whateverayn.kkmap.BuildConfig
 import io.github.whateverayn.kkmap.core.map.KkMapController
+import io.github.whateverayn.kkmap.core.rail.RouteCandidate
 import io.github.whateverayn.kkmap.location.DebugLocation
 import io.github.whateverayn.kkmap.location.LocationFix
 import io.github.whateverayn.kkmap.location.fusedLocationFlow
+import io.github.whateverayn.kkmap.rail.RailData
+import io.github.whateverayn.kkmap.rail.RailRepository
+import io.github.whateverayn.kkmap.rail.RouteStore
 import io.github.whateverayn.kkmap.settings.AppSettings
 import io.github.whateverayn.kkmap.settings.LocationSourceKind
+import io.github.whateverayn.kkmap.ui.route.RouteEditor
 import io.github.whateverayn.kkmap.ui.settings.SettingsPanel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterNotNull
 import org.maplibre.android.geometry.LatLng
@@ -74,6 +85,24 @@ fun MapScreen(appSettings: AppSettings) {
     var destination by rememberSaveable { mutableStateOf<DoubleArray?>(null) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var longPressTarget by rememberSaveable { mutableStateOf(LongPressTarget.DESTINATION) }
+    var showRoute by rememberSaveable { mutableStateOf(false) }
+
+    // 線路データと, 保存してある区間 (読み込みはバックグラウンド)
+    val railData by produceState<RailData?>(null) { value = RailRepository.load(context) }
+    val routeStore = remember { RouteStore(context) }
+    var sections by remember { mutableStateOf<List<RouteCandidate>?>(null) }
+    LaunchedEffect(railData) {
+        val data = railData ?: return@LaunchedEffect
+        if (sections == null) sections = withContext(Dispatchers.Default) { routeStore.load(data) }
+    }
+    val scope = rememberCoroutineScope()
+    fun updateSections(next: List<RouteCandidate>) {
+        sections = next
+        scope.launch(Dispatchers.IO) { routeStore.save(next) }
+    }
+    // 経路があれば最後の降車駅が目的地. 無ければロングタップで置いた点
+    val routeEnd = sections?.lastOrNull()?.to?.position
+    val effectiveDestination = routeEnd?.let { doubleArrayOf(it.lat, it.lon) } ?: destination
 
     var hasPermission by remember { mutableStateOf(hasLocationPermission(context)) }
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -106,8 +135,11 @@ fun MapScreen(appSettings: AppSettings) {
     LaunchedEffect(controller, fix) {
         controller?.setUserLocation(fix?.let { LatLng(it.latitude, it.longitude) })
     }
-    LaunchedEffect(controller, destination) {
-        controller?.setDestination(destination?.let { LatLng(it[0], it[1]) })
+    LaunchedEffect(controller, effectiveDestination?.toList()) {
+        controller?.setDestination(effectiveDestination?.let { LatLng(it[0], it[1]) })
+    }
+    LaunchedEffect(controller, sections) {
+        controller?.setRoute(sections?.map { s -> s.coordinates.map { LatLng(it.lat, it.lon) } })
     }
 
     // システムバーのアイコン色. 地図は常に明るい配色なので暗いアイコンにし, 設定画面ではテーマに合わせる
@@ -115,7 +147,7 @@ fun MapScreen(appSettings: AppSettings) {
     val darkTheme = isSystemInDarkTheme()
     SideEffect {
         val window = activity?.window ?: return@SideEffect
-        val lightBackground = !showSettings || !darkTheme
+        val lightBackground = !(showSettings || showRoute) || !darkTheme
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = lightBackground
             isAppearanceLightNavigationBars = lightBackground
@@ -124,14 +156,17 @@ fun MapScreen(appSettings: AppSettings) {
 
     // 上部オーバーレイの下端と, ナビゲーションバーの高さ (px). 地図の UI とカメラの余白をこの内側に収める
     var overlayBottomPx by remember { mutableIntStateOf(0) }
+    var rootHeightPx by remember { mutableIntStateOf(0) }
+    var bottomBarTopPx by remember { mutableIntStateOf(0) }
     val navigationBarPx = WindowInsets.navigationBars.getBottom(LocalDensity.current)
-    LaunchedEffect(controller, overlayBottomPx, navigationBarPx) {
-        controller?.setOverlayInsets(0, overlayBottomPx, 0, navigationBarPx)
+    val bottomInsetPx = if (bottomBarTopPx > 0) rootHeightPx - bottomBarTopPx else navigationBarPx
+    LaunchedEffect(controller, overlayBottomPx, bottomInsetPx) {
+        controller?.setOverlayInsets(0, overlayBottomPx, 0, bottomInsetPx)
     }
 
     val currentLongPressTarget by rememberUpdatedState(if (useManual) longPressTarget else LongPressTarget.DESTINATION)
 
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().onGloballyPositioned { rootHeightPx = it.size.height }) {
         KkMapView(modifier = Modifier.fillMaxSize()) { c ->
             c.onFollowModeChanged = { following = it }
             c.map.addOnMapLongClickListener { p ->
@@ -173,20 +208,54 @@ fun MapScreen(appSettings: AppSettings) {
                 DebugControls(
                     longPressTarget = longPressTarget,
                     onLongPressTargetChange = { longPressTarget = it },
-                    destination = destination,
+                    destination = effectiveDestination,
                 )
             }
         }
 
-        if (!following) {
-            Button(
-                onClick = { controller?.followMode = true },
+        // 下部: 経路の要約 (タップで編集) と追従ボタン
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .onGloballyPositioned { bottomBarTopPx = it.boundsInRoot().top.toInt() }
+                .safeDrawingPadding()
+                .padding(8.dp)
+                .fillMaxWidth(),
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                shape = MaterialTheme.shapes.medium,
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .safeDrawingPadding()
-                    .padding(16.dp)
-                    .heightIn(min = 48.dp),
-            ) { Text("追従") }
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .clickable(enabled = railData != null) { showRoute = true },
+            ) {
+                Text(
+                    text = routeSummary(railData, sections),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            }
+            if (!following) {
+                Button(
+                    onClick = { controller?.followMode = true },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("追従") }
+            }
+        }
+
+        val data = railData
+        if (showRoute && data != null) {
+            RouteEditor(
+                data = data,
+                sections = sections.orEmpty(),
+                onSectionsChange = ::updateSections,
+                onClose = { showRoute = false },
+            )
         }
 
         if (showSettings) {
@@ -244,6 +313,16 @@ private fun TargetButton(label: String, selected: Boolean, onClick: () -> Unit) 
         FilledTonalButton(onClick = onClick, modifier = Modifier.heightIn(min = 48.dp)) { Text(label) }
     } else {
         OutlinedButton(onClick = onClick, modifier = Modifier.heightIn(min = 48.dp)) { Text(label) }
+    }
+}
+
+private fun routeSummary(data: RailData?, sections: List<RouteCandidate>?): String = when {
+    data == null || sections == null -> "線路データを読み込み中…"
+    sections.isEmpty() -> "経路なし (タップして区間を追加)"
+    else -> {
+        val names = listOf(sections.first().from.name) + sections.map { it.to.name }
+        val km = sections.sumOf { it.lengthMeters } / 1000
+        "${names.joinToString(" → ")}  (%.1fkm)".format(km)
     }
 }
 
